@@ -1,0 +1,12 @@
+# 火山引擎大模型流式语音识别客户端依赖
+# 安装：pip install -r requirements.txt
+
+aiohttp>=3.11.14
+python-dotenv>=1.0.0
+
+# 音频采集：Windows 使用 PyAudioWPatch（支持 WASAPI 环回录制，可采集系统声音）
+PyAudioWPatch>=0.2.12.8; sys_platform == "win32"
+PyAudio>=0.2.14; sys_platform != "win32"
+
+# 打包成 exe 时才需要（python build_exe.py）：
+# pyinstaller>=6.19.0
