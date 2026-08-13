@@ -16,6 +16,9 @@ logs/
 # ===== 自动记录生成的转录内容（不入库）=====
 RecordMemory.md
 
+# ===== Claude Code 本地项目说明（不入库）=====
+CLAUDE.md
+
 # ===== Python =====
 __pycache__/
 *.py[cod]
