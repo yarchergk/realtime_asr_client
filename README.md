@@ -233,7 +233,7 @@ TTSV2/
 │   ├── app.css
 │   ├── app.js
 │   ├── fonts.css                    # 由 tools/vendor_fonts.py 生成，勿手改
-│   └── fonts/*.woff2                # 随程序走的字体子集，断网也不变样
+│   └── fonts/                       # 随程序走的字体子集 + OFL.txt（许可）
 ├── core.py                          # UI 无关的转录状态机（两套界面共用）
 ├── realtime_asr_client.py           # 桌面版（tkinter）+ 音频采集 + ASR 协议
 ├── translator.py                    # 实时翻译模块（OpenAI 兼容接口，默认 DeepSeek）
@@ -334,3 +334,10 @@ Hub / TranscriptState 服务端事件循环线程：唯一能碰状态的地方
 
 **网页字体看起来和别人的不一样**
 字体文件缺失时浏览器**不会报错**，只会静默回落到系统字体。确认 `web/static/fonts/` 存在；需要重新生成时联网跑一次 `python tools/vendor_fonts.py`。
+
+---
+
+## 许可
+
+网页界面内置 Source Sans 3、Noto Sans SC、IBM Plex Mono 三套字体（`web/static/fonts/`），
+均以 SIL Open Font License 1.1 授权分发，版权声明与许可全文见 [web/static/fonts/OFL.txt](web/static/fonts/OFL.txt)。

@@ -1,5 +1,8 @@
 /* 由 tools/vendor_fonts.py 生成，勿手改。
-   字体随程序走，断网也不会变样。 */
+   字体随程序走，断网也不会变样。
+
+   字体取自 Google Fonts，均以 SIL Open Font License 1.1 授权，
+   版权声明与许可全文见 fonts/OFL.txt。 */
 
 @font-face {
   font-family: 'Source Sans 3';

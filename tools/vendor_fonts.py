@@ -11,7 +11,8 @@
     web/static/fonts.css          @font-face 定义，src 指向本地文件
     web/static/fonts/*.woff2      各语言子集，浏览器按 unicode-range 按需读取
 
-改了 index.html 里的字体后，把下面的 FAMILIES 同步改掉再跑一遍。
+改了 index.html 里的字体后，把下面的 FAMILIES 同步改掉再跑一遍；
+换了字体家族记得同步更新 web/static/fonts/OFL.txt 里的版权声明。
 """
 
 from __future__ import annotations
@@ -51,7 +52,10 @@ def main() -> int:
     os.makedirs(FONT_DIR, exist_ok=True)
     out: list[str] = [
         "/* 由 tools/vendor_fonts.py 生成，勿手改。",
-        "   字体随程序走，断网也不会变样。 */",
+        "   字体随程序走，断网也不会变样。",
+        "",
+        "   字体取自 Google Fonts，均以 SIL Open Font License 1.1 授权，",
+        "   版权声明与许可全文见 fonts/OFL.txt。 */",
         "",
     ]
     total_files = total_bytes = 0
