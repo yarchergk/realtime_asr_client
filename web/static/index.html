@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IEC会议实时语音翻译V1.0</title>
+<!-- 字体随程序走，不依赖外网：会议现场断网时界面不会变样。
+     更新字体见 tools/vendor_fonts.py -->
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<div class="grain" aria-hidden="true"></div>
+
+<div class="shell" id="shell">
+  <header class="bar top">
+    <div class="wordmark"><span class="dot" id="dot"></span>IEC会议实时语音翻译V1.0</div>
+    <div class="chrome">
+      <select class="src-select" id="srcSelect" aria-label="音频源" title="音频源（录音期间不可更改）">
+        <option value="mic">麦克风</option>
+        <option value="sys">系统音频</option>
+        <option value="both">同时采集</option>
+      </select>
+      <button class="switch-wrap" id="trBtn" aria-pressed="true" aria-label="实时翻译"><span class="sw"><i></i></span><span>翻译</span></button>
+      <button class="switch-wrap" id="autoBtn" aria-pressed="false" aria-label="自动记录"><span class="sw"><i></i></span><span>自动记录</span></button>
+      <button class="ghost" id="clearBtn">清空</button>
+      <button class="ghost" id="stripBtn">字幕条</button>
+      <button class="ghost icon" id="themeBtn" aria-label="切换明暗">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 12.4A7 7 0 0 1 7.6 4a7 7 0 1 0 8.4 8.4Z"/></svg>
+      </button>
+      <button class="ghost icon" id="gearBtn" aria-label="设置">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.4v2.1M10 15.5v2.1M17.6 10h-2.1M4.5 10H2.4M15.4 4.6l-1.5 1.5M6.1 13.9l-1.5 1.5M15.4 15.4l-1.5-1.5M6.1 6.1 4.6 4.6"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <div class="column" id="column">
+      <div class="empty" id="empty">
+        <p class="e-title">按下开始，说话即出字</p>
+        <p class="e-sub" id="emptySub">原文与译文对照排印</p>
+      </div>
+      <div id="list"></div>
+    </div>
+    <p class="strip-hint">字幕条模式<br>点右下角「退出字幕条」或按 Esc 返回网页模式</p>
+    <button class="jump" id="jumpBtn" hidden>↓ 回到最新</button>
+  </main>
+
+  <footer class="bar bottom">
+    <div class="strip-view" id="stripView"><div class="strip-inner" id="stripInner"></div></div>
+    <!-- 流式文字独占一行，可多行显示；控件另起一行，长句再也压不到计时器 -->
+    <div class="interim-wrap" id="interimWrap"><span class="interim" id="interim" data-hint="连接中…"></span></div>
+    <div class="bottom-row">
+      <button class="rec" id="recBtn"><span class="rec-dot"></span><span class="rec-label" id="recLabel">开始录音</span></button>
+      <canvas id="wave" width="104" height="24" aria-hidden="true"></canvas>
+      <span class="timer" id="timer">00:00</span>
+      <button class="ghost strip-only" id="exitStripBtn" title="退出字幕条，返回网页模式（Esc）">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3H3v5M12 17h5v-5M3 3l6 6M17 17l-6-6"/></svg>
+        退出字幕条
+      </button>
+    </div>
+  </footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

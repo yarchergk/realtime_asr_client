@@ -42,3 +42,6 @@ temp_audio/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# ===== 网页界面早期设计稿（不入库）=====
+web/mock.html

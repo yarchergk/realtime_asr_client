@@ -29,6 +29,7 @@ from dataclasses import dataclass, replace
 from tkinter import scrolledtext, messagebox, ttk
 from typing import Dict, Any, List, Optional, Tuple
 
+from core import split_utterances          # 与浏览器端共用同一份识别结果解析
 from translator import (
     PROVIDER_PRESETS, TEST_TEXT, TranslationEngine, TranslatorConfig,
     check_base_url, find_preset, format_extra_body, needs_translation,
@@ -503,25 +504,6 @@ def queue_callback(ui_queue: queue.Queue, kind: str, *prefix):
     闭包只引用队列、不持有 App，避免 Tk 对象的最后一个引用落在后台线程里、在错误的线程被回收。
     """
     return lambda *args: ui_queue.put((kind,) + prefix + args)
-
-
-def split_utterances(data: Dict[str, Any]) -> Tuple[List[str], str]:
-    """把识别结果拆成（已确定分句列表，当前临时文字）。"""
-    result = data.get("result") or {}
-    if isinstance(result, list):
-        result = result[0] if result else {}
-    utterances = result.get("utterances") or []
-    definite: List[str] = []
-    interim = ""
-    for utt in utterances:
-        if utt.get("definite"):
-            definite.append(utt.get("text", ""))
-        else:
-            interim = utt.get("text", "")
-    # 如果没有 utterances，用顶层 text 作为临时结果
-    if not utterances:
-        interim = result.get("text", "")
-    return definite, interim
 
 
 def format_record(segments: List[Segment]) -> str:
