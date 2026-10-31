@@ -8,7 +8,6 @@
 |---|---|---|
 | `web_app.py` | 浏览器 | **推荐**。本地起 HTTP + WebSocket 服务，网页界面；有字幕条模式，适合投屏、录屏、OBS 采集 |
 | `realtime_asr_client.py` | tkinter 桌面窗口 | 早期版本，功能相同，无字幕条模式 |
-| `sauc_websocket_demo.py` | 命令行 | 音频文件转写 demo |
 
 ---
 
@@ -48,7 +47,7 @@ pip install -r requirements.txt
 ```ini
 VOLCENGINE_APP_KEY=你的_app_id
 VOLCENGINE_ACCESS_KEY=你的_access_token
-VOLCENGINE_RESOURCE_ID=volc.bigasr.sauc.duration   # 按量付费；并发包填 concurrent
+VOLCENGINE_RESOURCE_ID=volc.seedasr.sauc.duration   # 2.0 模型小时版；并发版把 duration 换成 concurrent
 
 # 实时翻译（默认 DeepSeek V4.1 Flash，API Key 在 https://platform.deepseek.com 获取）
 TRANSLATE_API_KEY=你的_deepseek_api_key
@@ -108,16 +107,11 @@ So the next step is…              ← 灰色：尚未确定的临时识别结�
 
 ### 文件转写 demo
 
-```bash
-python sauc_websocket_demo.py --file audio.wav
-python sauc_websocket_demo.py --file audio.mp3 --url wss://openspeech.bytedance.com/api/v3/sauc/bigmodel --seg-duration 200
-```
+本项目不再附带文件转写 demo。需要拿音频文件直接调接口（比如排查识别问题）时，请用火山引擎官方示例，Python / Go / Java 版本都在官方文档页提供下载：
 
-- `--file`：音频文件路径（必填），非 WAV 格式会自动调用 `ffmpeg` 转换
-- `--url`：WebSocket 端点，默认 `bigmodel_nostream`
-- `--seg-duration`：每包音频时长（毫秒），默认 200
+<https://docs.volcengine.com/docs/DoubaoVoice/bidirectional-streaming-automatic-speech-recognition-websocket?lang=zh>
 
-> 注意：该 demo 的密钥仍写在文件内的 `Config` 类中（`app_key` / `access_key` 为占位符 `xxxxxxx`），使用前需手动替换。
+> 注意：官方 Python 示例遇到非 WAV 输入时会调用 `ffmpeg` 转码，并**删除原始音频文件**，运行前请先备份。
 
 ---
 
@@ -237,7 +231,6 @@ TTSV2/
 ├── core.py                          # UI 无关的转录状态机（两套界面共用）
 ├── realtime_asr_client.py           # 桌面版（tkinter）+ 音频采集 + ASR 协议
 ├── translator.py                    # 实时翻译模块（OpenAI 兼容接口，默认 DeepSeek）
-├── sauc_websocket_demo.py           # 文件转写 demo
 ├── tools/vendor_fonts.py            # 一次性脚本：把网页字体下载到本地
 ├── build_exe.py                     # PyInstaller 打包脚本
 ├── requirements.txt                 # 依赖
@@ -259,6 +252,8 @@ TTSV2/
 **协议**：火山引擎使用自定义 WebSocket 二进制帧，`[4字节头][4字节序列号][4字节负载长度][Gzip 负载]`。会话流程为「配置包（seq=1）→ 确认 → 循环发送音频包（seq 递增）→ 末包 flags 置 `NEG_WITH_SEQ` 且 seq 取负」。
 
 **全量语义**：请求里 `result_type="full"`，服务端每次响应都返回会话内**全部**已确定的分句，不是增量。`core.SessionState.rendered` 记录已上屏的条数，只取其后新增的部分；该计数不随清空 / 自动记录归零，否则旧句子会重新上屏并被重复翻译（重复计费）。
+
+**分句时机**：请求里开了 `enable_nonstream`（二遍识别），服务端按静音判停——连续静音达到 `end_window_size`（当前 800 ms）即认为一句话说完，用非流式模型重识别这一句后标记为已确定。实测句子说完约 1 秒确定；不开时走语义分句，要等约 5 秒，译文也跟着晚。说话人句间几乎不停顿导致多句并成一条时，把 `realtime_asr_client.py` 里 `build_full_request()` 的 `end_window_size` 调小（范围 300–5000 ms）。
 
 **线程模型**（浏览器版）：
 
@@ -295,9 +290,9 @@ Hub / TranscriptState 服务端事件循环线程：唯一能碰状态的地方
 
 | URL 后缀 | 模式 |
 |---|---|
-| `/bigmodel` | 双向流式，实时输出，延迟最低（两套界面都用它） |
-| `/bigmodel_nostream` | 流式输入、累积后输出，精度更高（demo 默认） |
-| `/bigmodel_async` | 仅在结果变化时推送 |
+| `/bigmodel_async` | 双向流式，仅在结果变化时推送（两套界面都用它） |
+| `/bigmodel_nostream` | 流式输入、累积后输出，精度更高 |
+| `/bigmodel` | 旧版双向流式，只接受 1.0 模型；带 2.0 的资源 ID 握手会返回 400 `resourceId ... is not allowed` |
 
 详细的协议实现与代码解析见 [realtime_asr_client_analysis.md](realtime_asr_client_analysis.md)。
 

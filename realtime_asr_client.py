@@ -83,12 +83,13 @@ CHUNK_MS = 200            # 每包 200ms
 CHUNK_SIZE = SAMPLE_RATE * CHANNELS * SAMPLE_WIDTH * CHUNK_MS // 1000  # 6400 bytes
 
 # ─── API 配置 ─────────────────────────────────────────────────────────────────
-WS_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel"
+# 2.0 模型（volc.seedasr.*）不能走旧的 /bigmodel（握手返回 400 "resourceId ... is not allowed"），双向流式要用 bigmodel_async
+WS_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
 
 def load_config() -> Dict[str, str]:
     app_key = os.environ.get("VOLCENGINE_APP_KEY", "")
     access_key = os.environ.get("VOLCENGINE_ACCESS_KEY", "")
-    resource_id = os.environ.get("VOLCENGINE_RESOURCE_ID", "volc.bigasr.sauc.duration")
+    resource_id = os.environ.get("VOLCENGINE_RESOURCE_ID", "volc.seedasr.sauc.duration")
     return {"app_key": app_key, "access_key": access_key, "resource_id": resource_id}
 
 # ─── 协议常量 ─────────────────────────────────────────────────────────────────
@@ -127,6 +128,9 @@ def build_full_request(seq: int, cfg: Dict[str, str]) -> bytes:
         "audio": {"format": "pcm", "codec": "raw", "rate": SAMPLE_RATE, "bits": 16, "channel": CHANNELS},
         "request": {
             "model_name": "bigmodel",
+            # 二遍识别：改为按静音判停，句子说完约 1 秒即确定；不开则要等约 5 秒
+            "enable_nonstream": True,
+            "end_window_size": 800,   # 静音判停阈值（ms），范围 300–5000；调小出句更快但更碎
             "enable_itn": True,
             "enable_punc": True,
             "enable_ddc": False,
@@ -161,6 +165,9 @@ def parse_response(msg: bytes) -> Dict[str, Any]:
         payload = payload[4:]
     if flags & 0x02:
         result["is_last"] = True
+    if flags & 0x04:
+        result["event"] = struct.unpack('>i', payload[:4])[0]
+        payload = payload[4:]
 
     if msg_type == _Proto.FULL_RESPONSE:
         size = struct.unpack('>I', payload[:4])[0]
