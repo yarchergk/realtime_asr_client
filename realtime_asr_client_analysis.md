@@ -6,6 +6,8 @@
 
 每个已确定的句子还可以交给大模型实时翻译成中文：翻译逻辑独立在 `translator.py`，走 OpenAI 兼容的 Chat Completions 接口，默认使用 DeepSeek V4.1 Flash（模型名 `deepseek-flash`），可在界面或 `.env` 中切换为其他模型服务。
 
+本文件里的音频采集（`AudioCapture`）、二进制协议和 ASR 引擎（`RealtimeAsrEngine`）同时被浏览器版 `web_app.py` 直接复用；识别结果的解析函数 `split_utterances()` 放在两套界面共用的 `core.py` 里。
+
 ---
 
 ## 目录
@@ -44,7 +46,7 @@
 ```
 VOLCENGINE_APP_KEY      # 应用密钥
 VOLCENGINE_ACCESS_KEY   # 访问密钥
-VOLCENGINE_RESOURCE_ID  # 资源 ID（默认：volc.bigasr.sauc.duration）
+VOLCENGINE_RESOURCE_ID  # 资源 ID（默认：volc.seedasr.sauc.duration，即 2.0 模型小时版）
 ```
 
 实时翻译使用 `TRANSLATE_*` 变量（均可选，完整列表见 README）：
@@ -74,6 +76,7 @@ CHUNK_SIZE  = 6400    # 每包字节数 = 16000 × 1 × 2 × 200 / 1000
 realtime_asr_client.py
 │
 ├── 全局常量与配置
+│   ├── WS_URL                 — 接口地址（bigmodel_async）
 │   ├── load_config()          — 从环境变量加载 API 密钥
 │   └── _Proto                 — 协议位常量
 │
@@ -97,7 +100,7 @@ realtime_asr_client.py
 │   ├── Segment                — 一条已确定分句及其译文状态
 │   ├── AsrSessionState        — 一次录音会话的上屏进度
 │   ├── queue_callback()       — 后台线程回调 → UI 队列
-│   ├── split_utterances()     — 拆出已确定分句 / 临时文字
+│   ├── split_utterances()     — 拆出已确定分句 / 临时文字（定义在 core.py，这里只是导入）
 │   └── format_record()        — 生成写入 RecordMemory.md 的文本
 │
 ├── class App (tk.Tk)           — GUI 应用层
@@ -164,6 +167,8 @@ translator.py
 | `NEG_SEQ` | 0x2 | 是最后一包（无序列号） |
 | `NEG_WITH_SEQ` | 0x3 | 最后一包且含序列号（序列号取负值） |
 
+服务端响应的标志位按位解析：bit0（0x1）带序列号，bit1（0x2）是最后一包，bit2（0x4）表示序列号之后还有 4 字节的 event。`parse_response()` 把 event 读进结果的 `event` 字段；界面不用它，但这 4 字节必须跳过，否则后面的负载长度会读错位、整包被丢弃。
+
 ### 会话流程
 
 ```
@@ -181,6 +186,33 @@ Client                                    Server
   │←─ Full Response (is_last=True) ──────────│
   │                                          │
 ```
+
+### 接口地址与请求参数
+
+接口地址（`WS_URL`）是 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`。这是双向流式接口，**只在识别结果有变化时回包**，所以收到的响应数少于发出的音频包数。2.0 模型（`volc.seedasr.*`）不能走旧的双向流式地址 `/bigmodel`——它只接受 1.0 模型，带 2.0 的资源 ID 握手会返回 400。
+
+握手时携带的请求头：
+
+| 请求头 | 取值 |
+|--------|------|
+| `X-Api-App-Key` / `X-Api-Access-Key` | `.env` 里的两个密钥（旧版控制台的鉴权方式） |
+| `X-Api-Resource-Id` | 模型与计费方式，默认 `volc.seedasr.sauc.duration` |
+| `X-Api-Request-Id` | 每次会话随机生成的 UUID |
+
+Full Request 里的 `request` 字段（见 `build_full_request()`）：
+
+| 参数 | 值 | 作用 |
+|------|----|------|
+| `model_name` | `"bigmodel"` | 目前唯一取值 |
+| `enable_nonstream` | `True` | 二遍识别：按静音判停并重识别整句，决定分句时机，见[关键设计决策](#关键设计决策)第 7 条 |
+| `end_window_size` | `800` | 静音判停阈值（ms），范围 300–5000；调小出句更快但更碎，调大句子更完整但更晚 |
+| `enable_itn` | `True` | 数字、日期等转成书面格式 |
+| `enable_punc` | `True` | 加标点 |
+| `enable_ddc` | `False` | 不做语义顺滑（不删语气词、重复词） |
+| `show_utterances` | `True` | 返回分句列表及 `definite` 标记，界面靠它区分已确定 / 临时文字 |
+| `result_type` | `"full"` | 每次返回会话内全部分句，见第 3 条 |
+
+`audio` 字段固定为 `pcm` / `raw` / 16000 Hz / 16 bit / 单声道。
 
 ---
 
@@ -440,6 +472,7 @@ App._add_segment(句子)
 | API 密钥未配置 | 启动时弹出警告对话框，不阻止运行 |
 | WebSocket 初始化失败（code!=0） | 通过 result_callback 报告错误，显示红色错误信息，并自动停止录音 |
 | WebSocket 连接异常 | 捕获 Exception，通过 result_callback 报告，并自动停止录音 |
+| 握手被拒（如资源 ID 与接口地址不匹配，HTTP 400） | 同上。aiohttp 的异常只有状态码，不含服务端返回的原因；排查时用 curl 带 WebSocket 升级头请求同一地址，可看到错误正文和 `X-Tt-Logid` |
 | WASAPI loopback 设备未找到 | 抛出 RuntimeError，在 _on_start 中捕获并显示错误，释放已打开的音频流、结束 ASR 会话 |
 | Gzip 解压失败 | 记录日志，返回空数据（静默失败） |
 | JSON 解析失败 | 记录日志，返回空数据（静默失败） |
@@ -503,6 +536,12 @@ Hello everyone.
 
 主流模型服务都提供 OpenAI 兼容接口，换接口地址、Key、模型名即可切换；直接用已有依赖 `aiohttp` 调用，不引入 `openai` SDK，打包体积不变。
 
+### 7. 二遍识别（enable_nonstream）决定分句时机
+
+翻译由已确定的分句触发（见第 5 条），所以「一句话说完多久才 `definite`」直接决定译文的延迟。`bigmodel_async` 接口不加参数时走语义分句，句子说完约 5 秒才确定；开启 `enable_nonstream` 后服务端改为按静音判停——连续静音达到 800 ms 即认为一句结束，再用非流式模型把这一句重识别一遍后标记为确定，约 1 秒。两个数字都是用合成语音实测的。代价是停止录音后，最后一句要多等几百毫秒才收到 `is_last`。
+
+说话人句间停顿短于阈值时，多句会并成一条再确定；可把 `request` 里的 `end_window_size`（当前 800，范围 300–5000 ms）调小。
+
 ---
 
 ## 潜在问题与改进建议
@@ -556,27 +595,28 @@ data, _ = audioop.ratecv(data, 2, native_channels, native_rate, SAMPLE_RATE, Non
 
 | 符号 | 位置 | 说明 |
 |------|------|------|
-| `load_config()` | `realtime_asr_client.py` 第 87 行 | 加载 API 密钥 |
-| `_Proto` | `realtime_asr_client.py` 第 94 行 | 协议位常量 |
-| `_make_header()` | `realtime_asr_client.py` 第 108 行 | 构造消息头 |
-| `build_full_request()` | `realtime_asr_client.py` 第 122 行 | 构造初始化包 |
-| `build_audio_request()` | `realtime_asr_client.py` 第 139 行 | 构造音频包 |
-| `parse_response()` | `realtime_asr_client.py` 第 148 行 | 解析响应 |
-| `RealtimeAsrEngine` | `realtime_asr_client.py` 第 192 行 | 异步 ASR 引擎类 |
-| `_find_loopback_device()` | `realtime_asr_client.py` 第 312 行 | 查找 loopback 设备 |
-| `_resample_to_mono16k()` | `realtime_asr_client.py` 第 325 行 | PCM 重采样 |
-| `_mix_pcm()` | `realtime_asr_client.py` 第 340 行 | PCM 混音 |
-| `AudioCapture` | `realtime_asr_client.py` 第 351 行 | 音频采集类 |
-| `Segment` | `realtime_asr_client.py` 第 474 行 | 已确定分句及译文状态 |
-| `AsrSessionState` | `realtime_asr_client.py` 第 490 行 | 录音会话上屏进度 |
-| `split_utterances()` | `realtime_asr_client.py` 第 508 行 | 拆分已确定分句 / 临时文字 |
-| `format_record()` | `realtime_asr_client.py` 第 527 行 | 生成自动记录文本 |
-| `App` | `realtime_asr_client.py` 第 555 行 | tkinter GUI 应用类 |
-| `App._do_auto_save()` | `realtime_asr_client.py` 第 827 行 | 自动保存逻辑 |
-| `App._handle_asr()` | `realtime_asr_client.py` 第 896 行 | 识别结果处理 |
-| `App._add_segment()` | `realtime_asr_client.py` 第 933 行 | 分句上屏、提交翻译 |
-| `App._handle_translation()` | `realtime_asr_client.py` 第 967 行 | 流式译文渲染 |
-| `TranslationSettingsDialog` | `realtime_asr_client.py` 第 1052 行 | 翻译设置对话框 |
+| `WS_URL` | `realtime_asr_client.py` 第 87 行 | 接口地址 |
+| `load_config()` | `realtime_asr_client.py` 第 89 行 | 加载 API 密钥 |
+| `_Proto` | `realtime_asr_client.py` 第 96 行 | 协议位常量 |
+| `_make_header()` | `realtime_asr_client.py` 第 110 行 | 构造消息头 |
+| `build_full_request()` | `realtime_asr_client.py` 第 124 行 | 构造初始化包 |
+| `build_audio_request()` | `realtime_asr_client.py` 第 144 行 | 构造音频包 |
+| `parse_response()` | `realtime_asr_client.py` 第 153 行 | 解析响应 |
+| `RealtimeAsrEngine` | `realtime_asr_client.py` 第 200 行 | 异步 ASR 引擎类 |
+| `_find_loopback_device()` | `realtime_asr_client.py` 第 320 行 | 查找 loopback 设备 |
+| `_resample_to_mono16k()` | `realtime_asr_client.py` 第 333 行 | PCM 重采样 |
+| `_mix_pcm()` | `realtime_asr_client.py` 第 348 行 | PCM 混音 |
+| `AudioCapture` | `realtime_asr_client.py` 第 359 行 | 音频采集类 |
+| `Segment` | `realtime_asr_client.py` 第 482 行 | 已确定分句及译文状态 |
+| `AsrSessionState` | `realtime_asr_client.py` 第 498 行 | 录音会话上屏进度 |
+| `split_utterances()` | `core.py` 第 57 行 | 拆分已确定分句 / 临时文字（两套界面共用） |
+| `format_record()` | `realtime_asr_client.py` 第 516 行 | 生成自动记录文本 |
+| `App` | `realtime_asr_client.py` 第 544 行 | tkinter GUI 应用类 |
+| `App._do_auto_save()` | `realtime_asr_client.py` 第 816 行 | 自动保存逻辑 |
+| `App._handle_asr()` | `realtime_asr_client.py` 第 885 行 | 识别结果处理 |
+| `App._add_segment()` | `realtime_asr_client.py` 第 922 行 | 分句上屏、提交翻译 |
+| `App._handle_translation()` | `realtime_asr_client.py` 第 956 行 | 流式译文渲染 |
+| `TranslationSettingsDialog` | `realtime_asr_client.py` 第 1041 行 | 翻译设置对话框 |
 | `PROVIDER_PRESETS` | `translator.py` 第 49 行 | 服务商预设 |
 | `TranslatorConfig` | `translator.py` 第 162 行 | 翻译配置 |
 | `needs_translation()` | `translator.py` 第 259 行 | 是否需要翻译 |
